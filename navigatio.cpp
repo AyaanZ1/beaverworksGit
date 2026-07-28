@@ -81,6 +81,7 @@ void reportCellData(int id, float tempC, float humidity, long distanceCm);
 
 void setup() {
   Serial.begin(9600);
+  Serial1.begin(9600);
  
   dht.begin();
   pinMode(LED_PIN, OUTPUT);
@@ -288,14 +289,14 @@ long readUltrasonic() {
 
 void reportCellData(int id, float tempC, float humidity, long distanceCm) {
   if (isnan(tempC) || isnan(humidity)) {
-    Serial.print("Cell "); Serial.print(id);
-    Serial.println(": DHT11 read failed.");
+    Serial1.print("Cell "); Serial1.print(id);
+    Serial1.println(": DHT11 read failed.");
     return;
   }
  
-  Serial.print("Cell "); Serial.print(id);
-  Serial.print(" | Temp: "); Serial.print(tempC);
-  Serial.print(" C | Humidity: "); Serial.print(humidity);
-  Serial.print(" % | Ultrasonic: "); Serial.print(distanceCm);
-  Serial.println(" cm");
+  Serial1.print("Cell "); Serial1.print(id);
+  Serial1.print(" | Temp: "); Serial1.print(tempC);
+  Serial1.print(" C | Humidity: "); Serial1.print(humidity);
+  Serial1.print(" % | Ultrasonic: "); Serial1.print(distanceCm);
+  Serial1.println(" cm");
 }

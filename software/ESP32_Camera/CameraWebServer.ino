@@ -10,15 +10,30 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-#include "wifi_secrets.h"
+#include "wifi_secrets.example.h"
+
+#define RX1_PIN 13 // Receiving pin
+#define TX1_PIN 12
+#include <WebServer.h>
+//cell styructur init
+struct Cell { int id; float tempC, humidity, distanceCm; bool ok; };
+Cell latest;
+bool hasCell = false;
+
+//sensor data server initialization
+WebServer dataServer(82);
 
 void startCameraServer();
 void setupLedFlash();
+void readMega();
+void handleCell();
 
 void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
+
+  
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -42,7 +57,7 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.frame_size = FRAMESIZE_QVGA;
   //config.pixel_format = PIXFORMAT_JPEG;  // for streaming
-  config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
+  config.pixel_format = PIXFORMAT_RGB565;  // for face detection/recognition
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
@@ -122,9 +137,56 @@ void setup() {
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
+
+
+  dataServer.on("/cell", handleCell);
+  dataServer.begin();
+  Serial.print("Cell data at 'http://");
+  Serial.print(WiFi.localIP());
+  Serial.println(":82/cell'");
+
+  //serial1 pa' de la communicación de los microcontroladores
+  Serial1.begin(9600,SERIAL_8N1,RX1_PIN,TX1_PIN);
+  
 }
 
 void loop() {
-  // Do nothing. Everything is done in another task by the web server
-  delay(10000);
+  
+  readMega();
+  dataServer.handleClient();
+  
+}
+
+void readMega() {
+  if (!Serial1.available()) return;
+  String line = Serial1.readStringUntil('\n');
+
+  int id; float t, h, d;
+  if (sscanf(line.c_str(), "Cell %d | Temp: %f C | Humidity: %f %% | Ultrasonic: %f cm",
+             &id, &t, &h, &d) == 4) {
+    latest = { id, t, h, d, true };
+    hasCell = true;
+  } else if (sscanf(line.c_str(), "Cell %d: DHT11 read failed", &id) == 1) {
+    latest = { id, NAN, NAN, NAN, false };
+    hasCell = true;
+  }
+}
+
+void handleCell() {
+  dataServer.sendHeader("Access-Control-Allow-Origin", "*");
+  if (!hasCell) { dataServer.send(204, "application/json", ""); return; }
+
+  Cell c = latest;   
+  // copy out the current one
+  char obj[128];
+  if (c.ok) {
+    snprintf(obj, sizeof(obj),
+      "{\"id\":%d,\"tempC\":%.2f,\"humidity\":%.2f,\"distanceCm\":%.2f,\"ok\":true}",
+      c.id, c.tempC, c.humidity, c.distanceCm);
+  } else {
+    snprintf(obj, sizeof(obj),
+      "{\"id\":%d,\"tempC\":null,\"humidity\":null,\"distanceCm\":null,\"ok\":false}",
+      c.id);
+  }
+  dataServer.send(200, "application/json", obj);
 }

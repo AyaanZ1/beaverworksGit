@@ -8,8 +8,8 @@ import pandas as pd
 from ultralytics import YOLO
 
 
-STREAM_URL = "http://192.168.1.4:81/stream"
-MODEL_PATH = Path("yolo26n.pt")
+STREAM_URL = "http://10.0.0.85:81/stream"
+MODEL_PATH = Path("/Users/ayaanz/Desktop/beaverworksGit/software/ESP32_Camera/python/YOLO 26n.pt")
 
 TARGET_CLASS = "person"
 CONFIRMATION_FRAMES = 3
