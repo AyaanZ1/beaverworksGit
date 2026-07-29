@@ -17,6 +17,11 @@ TARGET_CLASS = "person"
 CONFIRMATION_FRAMES = 3
 TARGET_LOSS_DELAY = 0.75
 
+IMAGE_DIRECTORY = Path(__file__).parent / "cell_images"
+IMAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+CELL_POLL_INTERVAL = 0.5
+
 
 st.set_page_config(
     page_title="Robot Vision Dashboard",
@@ -30,12 +35,18 @@ if "detection_log" not in st.session_state:
 if "selected_cell_id" not in st.session_state:
     st.session_state.selected_cell_id = 1
 
+if "last_reported_cell_id" not in st.session_state:
+    st.session_state.last_reported_cell_id = None
+
+if "pending_capture_cell_id" not in st.session_state:
+    st.session_state.pending_capture_cell_id = None
+
 
 def create_empty_cell_data():
-    """Create 25 empty cells that are populated by live ESP32 readings."""
+    """Create 16 empty cells that are populated by live ESP32 readings."""
     cells = {}
 
-    for cell_id in range(1, 26):
+    for cell_id in range(1, 17):
         cells[cell_id] = {
             "id": cell_id,
             "tempC": None,
@@ -78,6 +89,10 @@ def update_live_cell_data():
             "ok": live["ok"],
             "visited": True,
         }
+
+        if cell_id != st.session_state.last_reported_cell_id:
+            st.session_state.last_reported_cell_id = cell_id
+            st.session_state.pending_capture_cell_id = cell_id
 
     except Exception:
         pass
@@ -170,7 +185,7 @@ history_placeholder = st.empty()
 
 
 # ============================================================
-# 5 x 5 Environmental Sensor Grid
+# 4 x 4 Environmental Sensor Grid
 # ============================================================
 
 st.divider()
@@ -180,11 +195,11 @@ st.caption(
     "Select a location to view its latest environmental sensor readings."
 )
 
-for row in range(5):
-    grid_columns = st.columns(5)
+for row in range(4):
+    grid_columns = st.columns(4)
 
-    for column in range(5):
-        cell_id = 25 - ((row * 5) + column)
+    for column in range(4):
+        cell_id = 16 - ((row * 4) + column)
         cell = st.session_state.cell_data[cell_id]
 
         if cell_id == st.session_state.selected_cell_id:
@@ -270,6 +285,7 @@ if not start_camera:
 
 
 capture = cv2.VideoCapture(STREAM_URL)
+last_cell_poll_time = 0.0
 
 if not capture.isOpened():
     camera_status.error("Camera: Connection failed")
@@ -285,6 +301,12 @@ command_history = deque(maxlen=CONFIRMATION_FRAMES)
 
 try:
     while start_camera:
+        current_time = time.monotonic()
+
+        if current_time - last_cell_poll_time >= CELL_POLL_INTERVAL:
+            update_live_cell_data()
+            last_cell_poll_time = current_time
+
         success, frame = capture.read()
 
         if not success or frame is None:
@@ -292,6 +314,24 @@ try:
             break
 
         frame_height, frame_width = frame.shape[:2]
+
+        pending_cell_id = st.session_state.pending_capture_cell_id
+
+        if pending_cell_id is not None:
+            timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+            image_path = (
+                IMAGE_DIRECTORY
+                / f"cell_{pending_cell_id:02d}_{timestamp}.jpg"
+            )
+
+            image_saved = cv2.imwrite(str(image_path), frame)
+
+            if image_saved:
+                st.session_state.cell_data[pending_cell_id][
+                    "latest_image"
+                ] = str(image_path)
+
+                st.session_state.pending_capture_cell_id = None
 
         results = model.track(
             source=frame,
