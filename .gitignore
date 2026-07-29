@@ -1,3 +1,5 @@
 
 software/ESP32_Camera/python/dashboard_backup.py
 software/ESP32_Camera/python/dashboard_before_grid.py
+software/ESP32_Camera/python/cell_images/
+software/ESP32_Camera/python/dashboard_before_*.py
