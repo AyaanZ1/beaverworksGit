@@ -8,8 +8,8 @@ import pandas as pd
 from ultralytics import YOLO
 
 
-STREAM_URL = "http://10.0.0.85:81/stream"
-MODEL_PATH = Path("/Users/ayaanz/Desktop/beaverworksGit/software/ESP32_Camera/python/YOLO 26n.pt")
+STREAM_URL = "http://192.168.1.4:81/stream"
+MODEL_PATH = Path(__file__).parent / "yolo26n.pt"
 
 TARGET_CLASS = "person"
 CONFIRMATION_FRAMES = 3
@@ -24,6 +24,29 @@ st.set_page_config(
 
 if "detection_log" not in st.session_state:
     st.session_state.detection_log = []
+
+if "selected_cell_id" not in st.session_state:
+    st.session_state.selected_cell_id = 1
+
+
+def create_mock_cell_data():
+    """Create temporary environmental readings for the 25 grid cells."""
+    cells = {}
+
+    for cell_id in range(1, 26):
+        cells[cell_id] = {
+            "id": cell_id,
+            "tempC": 22.0 + ((cell_id - 1) % 5),
+            "humidity": 40.0 + ((cell_id * 2) % 15),
+            "distanceCm": max(10.0, 110.0 - (cell_id * 3)),
+            "ok": cell_id not in {7, 13, 19},
+        }
+
+    return cells
+
+
+if "cell_data" not in st.session_state:
+    st.session_state.cell_data = create_mock_cell_data()
 
 st.title("🤖 Robot Vision Dashboard")
 st.caption("ESP32-CAM object detection, tracking, and navigation monitor")
@@ -104,6 +127,92 @@ with status_column:
 
 st.subheader("Recent Detection History")
 history_placeholder = st.empty()
+
+
+# ============================================================
+# 5 x 5 Environmental Sensor Grid
+# ============================================================
+
+st.divider()
+st.header("🗺️ Environmental Mapping Grid")
+
+st.caption(
+    "Select a location to view its latest environmental sensor readings."
+)
+
+for row in range(5):
+    grid_columns = st.columns(5)
+
+    for column in range(5):
+        cell_id = (row * 5) + column + 1
+        cell = st.session_state.cell_data[cell_id]
+
+        if cell_id == st.session_state.selected_cell_id:
+            button_label = f"📍 Cell {cell_id}"
+        elif cell["ok"]:
+            button_label = f"🟢 Cell {cell_id}"
+        else:
+            button_label = f"🔴 Cell {cell_id}"
+
+        with grid_columns[column]:
+            if st.button(
+                button_label,
+                key=f"cell_button_{cell_id}",
+                use_container_width=True,
+            ):
+                st.session_state.selected_cell_id = cell_id
+                st.rerun()
+
+
+selected_cell = st.session_state.cell_data[
+    st.session_state.selected_cell_id
+]
+
+st.subheader(
+    f"Environmental Data — Cell {selected_cell['id']}"
+)
+
+temperature_column, humidity_column, distance_column, grid_status_column = (
+    st.columns(4)
+)
+
+with temperature_column:
+    st.metric(
+        "Temperature",
+        f"{selected_cell['tempC']:.1f} °C",
+    )
+
+with humidity_column:
+    st.metric(
+        "Humidity",
+        f"{selected_cell['humidity']:.1f}%",
+    )
+
+with distance_column:
+    st.metric(
+        "Obstacle Distance",
+        f"{selected_cell['distanceCm']:.1f} cm",
+    )
+
+with grid_status_column:
+    st.write("Environment Status")
+
+    if selected_cell["ok"]:
+        st.success("Safe")
+    else:
+        st.error("Hazard Detected")
+
+
+legend_1, legend_2, legend_3 = st.columns(3)
+
+with legend_1:
+    st.info("📍 Selected cell")
+
+with legend_2:
+    st.success("🟢 Safe location")
+
+with legend_3:
+    st.error("🔴 Hazard location")
 
 
 if not start_camera:

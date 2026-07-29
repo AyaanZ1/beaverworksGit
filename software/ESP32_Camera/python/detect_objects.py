@@ -15,7 +15,6 @@ if not images:
 image_file = images[-1]
 print(f"Loading: {image_file}")
 
-# Small pretrained model suitable for an initial test.
 model = YOLO("yolo26n.pt")
 
 results = model.predict(
