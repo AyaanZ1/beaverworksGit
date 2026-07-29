@@ -2,38 +2,28 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 
-// ===========================
-// Select camera model in board_config.h
-// ===========================
 #include "board_config.h"
-
-// ===========================
-// Enter your WiFi credentials
-// ===========================
 #include "wifi_secrets.example.h"
+#include "Cell.h"                 // struct Cell + extern latest/hasCell (shared with app_httpd.cpp)
 
-#define RX1_PIN 13 // Receiving pin
-#define TX1_PIN 12
-#include <WebServer.h>
-//cell styructur init
-struct Cell { int id; float tempC, humidity, distanceCm; bool ok; };
+#define RX1_PIN 13   // ESP32 RX <- Mega TX1 (18)   [level-shift the Mega's 5V down to 3.3V]
+#define TX1_PIN 12   // ESP32 TX -> Mega RX1 (19)
+
+// The ONE real definition of the shared globals. app_httpd.cpp sees them via extern in Cell.h.
 Cell latest;
 bool hasCell = false;
-
-//sensor data server initialization
-WebServer dataServer(82);
 
 void startCameraServer();
 void setupLedFlash();
 void readMega();
-void handleCell();
 
 void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
 
-  
+  // link to the Mega
+  Serial1.begin(9600, SERIAL_8N1, RX1_PIN, TX1_PIN);
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -56,67 +46,44 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.frame_size = FRAMESIZE_QVGA;
-  //config.pixel_format = PIXFORMAT_JPEG;  // for streaming
-  config.pixel_format = PIXFORMAT_RGB565;  // for face detection/recognition
+  config.pixel_format = PIXFORMAT_RGB565;    
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
   config.fb_count = 1;
 
-  // if PSRAM IC present, init with UXGA resolution and higher JPEG quality
-  //                      for larger pre-allocated frame buffer.
   if (config.pixel_format == PIXFORMAT_JPEG) {
     if (psramFound()) {
       config.jpeg_quality = 10;
       config.fb_count = 2;
       config.grab_mode = CAMERA_GRAB_LATEST;
     } else {
-      // Limit the frame size when PSRAM is not available
       config.frame_size = FRAMESIZE_SVGA;
       config.fb_location = CAMERA_FB_IN_DRAM;
     }
   } else {
-    // Best option for face detection/recognition
     config.frame_size = FRAMESIZE_240X240;
 #if CONFIG_IDF_TARGET_ESP32S3
     config.fb_count = 2;
 #endif
   }
 
-#if defined(CAMERA_MODEL_ESP_EYE)
-  pinMode(13, INPUT_PULLUP);
-  pinMode(14, INPUT_PULLUP);
-#endif
-
-  // camera init
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
-    return;
+    return;   // if this fires, no web server starts -> unreachable IP. Reseat the ribbon cable.
   }
 
   sensor_t *s = esp_camera_sensor_get();
-  // initial sensors are flipped vertically and colors are a bit saturated
   if (s->id.PID == OV3660_PID) {
-    s->set_vflip(s, 1);        // flip it back
-    s->set_brightness(s, 1);   // up the brightness just a bit
-    s->set_saturation(s, -2);  // lower the saturation
+    s->set_vflip(s, 1);
+    s->set_brightness(s, 1);
+    s->set_saturation(s, -2);
   }
-  // drop down frame size for higher initial frame rate
   if (config.pixel_format == PIXFORMAT_JPEG) {
     s->set_framesize(s, FRAMESIZE_QVGA);
   }
 
-#if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
-  s->set_vflip(s, 1);
-  s->set_hmirror(s, 1);
-#endif
-
-#if defined(CAMERA_MODEL_ESP32S3_EYE)
-  s->set_vflip(s, 1);
-#endif
-
-// Setup LED FLash if LED pin is defined in camera_pins.h
 #if defined(LED_GPIO_NUM)
   setupLedFlash();
 #endif
@@ -132,34 +99,26 @@ void setup() {
   Serial.println("");
   Serial.println("WiFi connected");
 
-  startCameraServer();
+  startCameraServer();   // serves camera AND /cell + /live, all on port 80
 
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
 
-
-  dataServer.on("/cell", handleCell);
-  dataServer.begin();
-  Serial.print("Cell data at 'http://");
+  Serial.print("Live cell data at 'http://");
   Serial.print(WiFi.localIP());
-  Serial.println(":82/cell'");
-
-  //serial1 pa' de la communicación de los microcontroladores
-  Serial1.begin(9600,SERIAL_8N1,RX1_PIN,TX1_PIN);
-  
+  Serial.println("/live'");
 }
 
 void loop() {
-  
-  readMega();
-  dataServer.handleClient();
-  
+  readMega();     // parse serial from the Mega -> updates latest/hasCell
+  delay(2);       // small yield; the web server runs in its own task
 }
 
 void readMega() {
   if (!Serial1.available()) return;
   String line = Serial1.readStringUntil('\n');
+  Serial.print("GOT: ["); Serial.print(line); Serial.println("]");   // debug
 
   int id; float t, h, d;
   if (sscanf(line.c_str(), "Cell %d | Temp: %f C | Humidity: %f %% | Ultrasonic: %f cm",
@@ -170,23 +129,4 @@ void readMega() {
     latest = { id, NAN, NAN, NAN, false };
     hasCell = true;
   }
-}
-
-void handleCell() {
-  dataServer.sendHeader("Access-Control-Allow-Origin", "*");
-  if (!hasCell) { dataServer.send(204, "application/json", ""); return; }
-
-  Cell c = latest;   
-  // copy out the current one
-  char obj[128];
-  if (c.ok) {
-    snprintf(obj, sizeof(obj),
-      "{\"id\":%d,\"tempC\":%.2f,\"humidity\":%.2f,\"distanceCm\":%.2f,\"ok\":true}",
-      c.id, c.tempC, c.humidity, c.distanceCm);
-  } else {
-    snprintf(obj, sizeof(obj),
-      "{\"id\":%d,\"tempC\":null,\"humidity\":null,\"distanceCm\":null,\"ok\":false}",
-      c.id);
-  }
-  dataServer.send(200, "application/json", obj);
 }
