@@ -52,12 +52,8 @@ def create_empty_cell_data():
             "tempC": None,
             "humidity": None,
             "distanceCm": None,
-            "soundLevel": None,
-            "soundHazard": False,
             "ok": True,
             "visited": False,
-            "latest_image": None,
-            "objects": [],
         }
 
     return cells
@@ -85,18 +81,14 @@ def update_live_cell_data():
         if cell_id not in st.session_state.cell_data:
             return
 
-        st.session_state.cell_data[cell_id].update(
-            {
-                "id": cell_id,
-                "tempC": live["tempC"],
-                "humidity": live["humidity"],
-                "distanceCm": live["distanceCm"],
-                "soundLevel": live.get("soundLevel"),
-                "soundHazard": live.get("soundHazard", False),
-                "ok": live["ok"],
-                "visited": True,
-            }
-        )
+        st.session_state.cell_data[cell_id] = {
+            "id": cell_id,
+            "tempC": live["tempC"],
+            "humidity": live["humidity"],
+            "distanceCm": live["distanceCm"],
+            "ok": live["ok"],
+            "visited": True,
+        }
 
         if cell_id != st.session_state.last_reported_cell_id:
             st.session_state.last_reported_cell_id = cell_id
@@ -104,6 +96,7 @@ def update_live_cell_data():
 
     except Exception:
         pass
+
 
 
 if "cell_data" not in st.session_state:
@@ -196,28 +189,7 @@ history_placeholder = st.empty()
 # ============================================================
 
 st.divider()
-
-visited_cells = sum(
-    1
-    for cell in st.session_state.cell_data.values()
-    if cell.get("visited", False)
-)
-
-total_cells = len(st.session_state.cell_data)
-exploration_progress = (
-    visited_cells / total_cells
-    if total_cells > 0
-    else 0.0
-)
-
 st.header("🗺️ Environmental Mapping Grid")
-
-st.write("**Exploration Progress**")
-st.progress(exploration_progress)
-st.caption(
-    f"{visited_cells} / {total_cells} Cells Visited "
-    f"— {exploration_progress:.0%} Complete"
-)
 
 st.caption(
     "Select a location to view its latest environmental sensor readings."
@@ -232,9 +204,7 @@ for row in range(4):
 
         if cell_id == st.session_state.selected_cell_id:
             button_label = f"📍 Cell {cell_id}"
-        elif not cell.get("visited", False):
-            button_label = f"⬜ Cell {cell_id}"
-        elif cell.get("ok", False):
+        elif cell["ok"]:
             button_label = f"🟢 Cell {cell_id}"
         else:
             button_label = f"🔴 Cell {cell_id}"
@@ -254,7 +224,7 @@ selected_cell = st.session_state.cell_data[
 ]
 
 st.subheader(
-    f"Cell {selected_cell['id']} Overview"
+    f"Environmental Data — Cell {selected_cell['id']}"
 )
 
 temperature_column, humidity_column, distance_column, grid_status_column = (
@@ -282,46 +252,22 @@ with distance_column:
 with grid_status_column:
     st.write("Environment Status")
 
-    if not selected_cell.get("visited", False):
-        st.markdown(":gray[No data collected yet.]")
-    elif selected_cell.get("ok", False):
+    if selected_cell["ok"]:
         st.success("Sensors Online")
     else:
         st.warning("Sensor Read Failed")
 
 
-st.divider()
-st.subheader(f"📍 Cell {selected_cell['id']} Details")
+legend_1, legend_2, legend_3 = st.columns(3)
 
-image_column, objects_column = st.columns([2, 1])
+with legend_1:
+    st.info("📍 Selected cell")
 
-with image_column:
-    st.write("**Latest Captured Image**")
+with legend_2:
+    st.success("🟢 Safe location")
 
-    latest_image = selected_cell.get("latest_image")
-
-    if latest_image and Path(latest_image).exists():
-        st.image(
-            latest_image,
-            caption=f"Cell {selected_cell['id']}",
-            width="stretch",
-        )
-    elif selected_cell.get("visited"):
-        st.info("This cell was visited, but no image has been captured yet.")
-    else:
-        st.info("No image available. The robot has not visited this cell.")
-
-with objects_column:
-    st.write("**Objects Found**")
-
-    objects_found = selected_cell.get("objects", [])
-
-    if objects_found:
-        for object_name in sorted(set(objects_found)):
-            st.success(f"🔎 {object_name.title()}")
-    else:
-        st.info("No objects detected in this cell.")
-
+with legend_3:
+    st.error("🔴 Hazard location")
 
 hazard_notification = st.empty()
 
@@ -525,13 +471,8 @@ try:
                 f"Center: ({int(center_x)}, {int(center_y)})"
             )
 
-            current_cell_id = st.session_state.get(
-                "last_reported_cell_id"
-            )
-
             log_entry = {
                 "Time": time.strftime("%H:%M:%S"),
-                "Cell": current_cell_id if current_cell_id else "--",
                 "Object": best_target["class_name"],
                 "Tracking ID": best_target["track_id"],
                 "Confidence": round(
@@ -552,19 +493,6 @@ try:
                 st.session_state.detection_log = (
                     st.session_state.detection_log[-15:]
                 )
-
-                if (
-                    current_cell_id
-                    and current_cell_id in st.session_state.cell_data
-                ):
-                    cell_objects = st.session_state.cell_data[
-                        current_cell_id
-                    ].setdefault("objects", [])
-
-                    detected_object = best_target["class_name"]
-
-                    if detected_object not in cell_objects:
-                        cell_objects.append(detected_object)
 
         else:
             if current_time - last_target_time >= TARGET_LOSS_DELAY:

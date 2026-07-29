@@ -106,6 +106,7 @@ def update_live_cell_data():
         pass
 
 
+
 if "cell_data" not in st.session_state:
     st.session_state.cell_data = create_empty_cell_data()
 update_live_cell_data()
@@ -210,14 +211,14 @@ exploration_progress = (
     else 0.0
 )
 
-st.header("🗺️ Environmental Mapping Grid")
-
-st.write("**Exploration Progress**")
+st.subheader("Exploration Progress")
 st.progress(exploration_progress)
 st.caption(
     f"{visited_cells} / {total_cells} Cells Visited "
     f"— {exploration_progress:.0%} Complete"
 )
+
+st.header("🗺️ Environmental Mapping Grid")
 
 st.caption(
     "Select a location to view its latest environmental sensor readings."
@@ -254,7 +255,7 @@ selected_cell = st.session_state.cell_data[
 ]
 
 st.subheader(
-    f"Cell {selected_cell['id']} Overview"
+    f"Environmental Data — Cell {selected_cell['id']}"
 )
 
 temperature_column, humidity_column, distance_column, grid_status_column = (
@@ -283,7 +284,7 @@ with grid_status_column:
     st.write("Environment Status")
 
     if not selected_cell.get("visited", False):
-        st.markdown(":gray[No data collected yet.]")
+        st.info("No Data Collected")
     elif selected_cell.get("ok", False):
         st.success("Sensors Online")
     else:
@@ -322,6 +323,20 @@ with objects_column:
     else:
         st.info("No objects detected in this cell.")
 
+
+legend_1, legend_2, legend_3, legend_4 = st.columns(4)
+
+with legend_1:
+    st.info("📍 Selected cell")
+
+with legend_2:
+    st.write("⬜ Unvisited")
+
+with legend_3:
+    st.success("🟢 Visited")
+
+with legend_4:
+    st.error("🔴 Sensor error or hazard")
 
 hazard_notification = st.empty()
 
