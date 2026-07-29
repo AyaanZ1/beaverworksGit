@@ -312,7 +312,7 @@ with image_column:
         st.info("No image available. The robot has not visited this cell.")
 
 with objects_column:
-    st.write("**Objects Found**")
+    st.write("**People Detected**")
 
     objects_found = selected_cell.get("objects", [])
 
@@ -320,7 +320,7 @@ with objects_column:
         for object_name in sorted(set(objects_found)):
             st.success(f"🔎 {object_name.title()}")
     else:
-        st.info("No objects detected in this cell.")
+        st.info("No people detected in this cell.")
 
 
 hazard_notification = st.empty()
