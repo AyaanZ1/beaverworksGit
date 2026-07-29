@@ -24,7 +24,7 @@ CELL_POLL_INTERVAL = 0.5
 
 
 st.set_page_config(
-    page_title="Robot Vision Dashboard",
+    page_title="Autonomous Robot Dashboard",
     page_icon="🤖",
     layout="wide",
 )
@@ -110,8 +110,8 @@ if "cell_data" not in st.session_state:
     st.session_state.cell_data = create_empty_cell_data()
 update_live_cell_data()
 
-st.title("🤖 Robot Vision Dashboard")
-st.caption("ESP32-CAM object detection, tracking, and navigation monitor")
+st.title("🤖 Autonomous Robot Dashboard")
+st.caption("Real-time perception, navigation, and environmental monitoring")
 
 
 @st.cache_resource
@@ -171,7 +171,7 @@ st.sidebar.code(STREAM_URL)
 video_column, status_column = st.columns([3, 1])
 
 with video_column:
-    st.subheader("Live ESP32-CAM Feed")
+    st.subheader("Live Camera Feed")
     video_placeholder = st.empty()
 
 with status_column:
@@ -181,13 +181,13 @@ with status_column:
     command_status = st.empty()
     fps_status = st.empty()
 
-    st.subheader("Target Information")
+    st.subheader("Target Tracking")
     target_status = st.empty()
     track_status = st.empty()
     confidence_status = st.empty()
     position_status = st.empty()
 
-st.subheader("Recent Detection History")
+st.subheader("Detection History")
 history_placeholder = st.empty()
 
 
@@ -210,9 +210,9 @@ exploration_progress = (
     else 0.0
 )
 
-st.header("🗺️ Environmental Mapping Grid")
+st.header("🗺️ Environmental Map")
 
-st.write("**Exploration Progress**")
+st.write("**Area Coverage**")
 st.progress(exploration_progress)
 st.caption(
     f"{visited_cells} / {total_cells} Cells Visited "
@@ -220,7 +220,7 @@ st.caption(
 )
 
 st.caption(
-    "Select a location to view its latest environmental sensor readings."
+    "Select a cell to view environmental data and detection results."
 )
 
 for row in range(4):
@@ -280,10 +280,10 @@ with distance_column:
     )
 
 with grid_status_column:
-    st.write("Environment Status")
+    st.write("Environmental Status")
 
     if not selected_cell.get("visited", False):
-        st.markdown(":gray[No data collected yet.]")
+        st.markdown(":gray[No environmental data available.]")
     elif selected_cell.get("ok", False):
         st.success("Sensors Online")
     else:
@@ -296,7 +296,7 @@ st.subheader(f"📍 Cell {selected_cell['id']} Details")
 image_column, objects_column = st.columns([2, 1])
 
 with image_column:
-    st.write("**Latest Captured Image**")
+    st.write("**Latest Camera Capture**")
 
     latest_image = selected_cell.get("latest_image")
 
@@ -309,10 +309,10 @@ with image_column:
     elif selected_cell.get("visited"):
         st.info("This cell was visited, but no image has been captured yet.")
     else:
-        st.info("No image available. The robot has not visited this cell.")
+        st.info("No camera image available for this cell.")
 
 with objects_column:
-    st.write("**People Detected**")
+    st.write("**Detected People**")
 
     objects_found = selected_cell.get("objects", [])
 
@@ -320,7 +320,7 @@ with objects_column:
         for object_name in sorted(set(objects_found)):
             st.success(f"🔎 {object_name.title()}")
     else:
-        st.info("No people detected in this cell.")
+        st.info("No people detected.")
 
 
 hazard_notification = st.empty()
