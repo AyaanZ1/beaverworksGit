@@ -5,10 +5,12 @@ from pathlib import Path
 import cv2
 import streamlit as st
 import pandas as pd
+import requests
 from ultralytics import YOLO
 
 
 STREAM_URL = "http://192.168.1.4:81/stream"
+CELL_URL = "http://192.168.1.4/cell"
 MODEL_PATH = Path(__file__).parent / "yolo26n.pt"
 
 TARGET_CLASS = "person"
@@ -29,24 +31,62 @@ if "selected_cell_id" not in st.session_state:
     st.session_state.selected_cell_id = 1
 
 
-def create_mock_cell_data():
-    """Create temporary environmental readings for the 25 grid cells."""
+def create_empty_cell_data():
+    """Create 25 empty cells that are populated by live ESP32 readings."""
     cells = {}
 
     for cell_id in range(1, 26):
         cells[cell_id] = {
             "id": cell_id,
-            "tempC": 22.0 + ((cell_id - 1) % 5),
-            "humidity": 40.0 + ((cell_id * 2) % 15),
-            "distanceCm": max(10.0, 110.0 - (cell_id * 3)),
-            "ok": cell_id not in {7, 13, 19},
+            "tempC": None,
+            "humidity": None,
+            "distanceCm": None,
+            "ok": True,
+            "visited": False,
         }
 
     return cells
+def format_reading(value, decimals=1, suffix=""):
+    """Display unavailable sensor readings as --."""
+    if value is None:
+        return "--"
+
+    return f"{value:.{decimals}f}{suffix}"
+
+
+def update_live_cell_data():
+    """Fetch the newest environmental reading from the ESP32."""
+
+    try:
+        response = requests.get(CELL_URL, timeout=0.25)
+
+        if response.status_code != 200:
+            return
+
+        live = response.json()
+
+        cell_id = live["id"]
+
+        if cell_id not in st.session_state.cell_data:
+            return
+
+        st.session_state.cell_data[cell_id] = {
+            "id": cell_id,
+            "tempC": live["tempC"],
+            "humidity": live["humidity"],
+            "distanceCm": live["distanceCm"],
+            "ok": live["ok"],
+            "visited": True,
+        }
+
+    except Exception:
+        pass
+
 
 
 if "cell_data" not in st.session_state:
-    st.session_state.cell_data = create_mock_cell_data()
+    st.session_state.cell_data = create_empty_cell_data()
+update_live_cell_data()
 
 st.title("🤖 Robot Vision Dashboard")
 st.caption("ESP32-CAM object detection, tracking, and navigation monitor")
@@ -144,7 +184,7 @@ for row in range(5):
     grid_columns = st.columns(5)
 
     for column in range(5):
-        cell_id = (row * 5) + column + 1
+        cell_id = 25 - ((row * 5) + column)
         cell = st.session_state.cell_data[cell_id]
 
         if cell_id == st.session_state.selected_cell_id:
@@ -179,28 +219,28 @@ temperature_column, humidity_column, distance_column, grid_status_column = (
 with temperature_column:
     st.metric(
         "Temperature",
-        f"{selected_cell['tempC']:.1f} °C",
+        format_reading(selected_cell["tempC"], suffix=" °C"),
     )
 
 with humidity_column:
     st.metric(
         "Humidity",
-        f"{selected_cell['humidity']:.1f}%",
+        format_reading(selected_cell["humidity"], suffix="%"),
     )
 
 with distance_column:
     st.metric(
         "Obstacle Distance",
-        f"{selected_cell['distanceCm']:.1f} cm",
+        format_reading(selected_cell["distanceCm"], suffix=" cm"),
     )
 
 with grid_status_column:
     st.write("Environment Status")
 
     if selected_cell["ok"]:
-        st.success("Safe")
+        st.success("Sensors Online")
     else:
-        st.error("Hazard Detected")
+        st.warning("Sensor Read Failed")
 
 
 legend_1, legend_2, legend_3 = st.columns(3)
@@ -213,6 +253,8 @@ with legend_2:
 
 with legend_3:
     st.error("🔴 Hazard location")
+
+hazard_notification = st.empty()
 
 
 if not start_camera:
@@ -264,6 +306,8 @@ try:
 
         best_target = None
 
+        person_detected = False
+
         if result.boxes is not None and len(result.boxes) > 0:
             classes = result.boxes.cls.int().cpu().tolist()
             confidences = result.boxes.conf.cpu().tolist()
@@ -304,6 +348,25 @@ try:
                     best_target = candidate
 
         current_time = time.perf_counter()
+
+        person_detected = best_target is not None
+        buzzer_on = False
+        hazard_detected = person_detected or buzzer_on
+
+        if hazard_detected:
+            hazard_reasons = []
+
+            if person_detected:
+                hazard_reasons.append("Person detected")
+
+            if buzzer_on:
+                hazard_reasons.append("Buzzer activated")
+
+            hazard_notification.error(
+                "⚠️ HAZARD: " + " and ".join(hazard_reasons)
+            )
+        else:
+            hazard_notification.empty()
 
         if best_target is not None:
             x1 = best_target["x1"]
