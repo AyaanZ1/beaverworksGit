@@ -17,6 +17,8 @@ TARGET_CLASS = "person"
 CONFIRMATION_FRAMES = 3
 TARGET_LOSS_DELAY = 0.75
 
+HEAT_HAZARD_THRESHOLD_C = 35.0
+
 IMAGE_DIRECTORY = Path(__file__).parent / "cell_images"
 IMAGE_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
@@ -50,6 +52,7 @@ def create_empty_cell_data():
         cells[cell_id] = {
             "id": cell_id,
             "tempC": None,
+            "heatHazard": False,
             "humidity": None,
             "distanceCm": None,
             "soundLevel": None,
@@ -67,6 +70,15 @@ def format_reading(value, decimals=1, suffix=""):
         return "--"
 
     return f"{value:.{decimals}f}{suffix}"
+
+
+def format_temperature(temp_c):
+    """Display temperature in Celsius and Fahrenheit."""
+    if temp_c is None:
+        return "--"
+
+    temp_f = temp_c * 9 / 5 + 32
+    return f"{temp_c:.1f}°C ({temp_f:.1f}°F)"
 
 
 def update_live_cell_data():
@@ -89,6 +101,10 @@ def update_live_cell_data():
             {
                 "id": cell_id,
                 "tempC": live["tempC"],
+                "heatHazard": (
+                    live["tempC"] is not None
+                    and live["tempC"] >= HEAT_HAZARD_THRESHOLD_C
+                ),
                 "humidity": live["humidity"],
                 "distanceCm": live["distanceCm"],
                 "soundLevel": live.get("soundLevel"),
@@ -234,8 +250,12 @@ for row in range(4):
             button_label = f"📍 Cell {cell_id}"
         elif not cell.get("visited", False):
             button_label = f"⬜ Cell {cell_id}"
+        elif cell.get("heatHazard", False):
+            button_label = f"🔴 Cell {cell_id}"
+
         elif cell.get("ok", False):
             button_label = f"🟢 Cell {cell_id}"
+
         else:
             button_label = f"🔴 Cell {cell_id}"
 
@@ -264,7 +284,7 @@ temperature_column, humidity_column, distance_column, grid_status_column = (
 with temperature_column:
     st.metric(
         "Temperature",
-        format_reading(selected_cell["tempC"], suffix=" °C"),
+        format_temperature(selected_cell["tempC"]),
     )
 
 with humidity_column:
@@ -284,9 +304,24 @@ with grid_status_column:
 
     if not selected_cell.get("visited", False):
         st.markdown(":gray[No environmental data available.]")
+
+    elif selected_cell.get("heatHazard", False):
+
+        temp_c = selected_cell["tempC"]
+        temp_f = temp_c * 9 / 5 + 32
+
+        st.error(
+            f"⚠️ Heat Hazard\n\n"
+            f"Temperature: {temp_c:.1f}°C ({temp_f:.1f}°F)\n\n"
+            f"Threshold: {HEAT_HAZARD_THRESHOLD_C:.1f}°C (95.0°F)"
+        )
+
     elif selected_cell.get("ok", False):
+
         st.success("Sensors Online")
+
     else:
+
         st.warning("Sensor Read Failed")
 
 
