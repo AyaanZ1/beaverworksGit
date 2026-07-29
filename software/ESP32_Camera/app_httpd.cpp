@@ -22,6 +22,7 @@
 #include "sdkconfig.h"
 #include "camera_index.h"
 #include "board_config.h"
+#include "Cell.h"
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -672,6 +673,66 @@ static esp_err_t index_handler(httpd_req_t *req) {
   }
 }
 
+// Returns the latest cell reading as JSON.
+static esp_err_t cell_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+ 
+    if (!hasCell) {
+        httpd_resp_set_status(req, "204 No Content");
+        return httpd_resp_send(req, NULL, 0);
+    }
+ 
+    char obj[128];
+    if (latest.ok) {
+        snprintf(obj, sizeof(obj),
+          "{\"id\":%d,\"tempC\":%.2f,\"humidity\":%.2f,\"distanceCm\":%.2f,\"ok\":true}",
+          latest.id, latest.tempC, latest.humidity, latest.distanceCm);
+    } else {
+        snprintf(obj, sizeof(obj),
+          "{\"id\":%d,\"tempC\":null,\"humidity\":null,\"distanceCm\":null,\"ok\":false}",
+          latest.id);
+    }
+    return httpd_resp_send(req, obj, strlen(obj));
+}
+
+static esp_err_t live_handler(httpd_req_t *req) {
+    static const char page[] =
+      "<!DOCTYPE html><html><head><meta charset=utf-8>"
+      "<title>Cell Data</title>"
+      "<style>body{font-family:sans-serif;padding:2rem;font-size:1.2rem}"
+      ".v{font-weight:bold}</style></head><body>"
+      "<h2>Latest Cell</h2>"
+      "<div>Cell ID: <span class=v id=id>-</span></div>"
+      "<div>Temp: <span class=v id=t>-</span> C</div>"
+      "<div>Humidity: <span class=v id=h>-</span> %</div>"
+      "<div>Distance: <span class=v id=d>-</span> cm</div>"
+      "<div>Status: <span class=v id=s>-</span></div>"
+      "<script>"
+      "async function tick(){"
+      " try{"
+      "  const r=await fetch('/cell',{cache:'no-store'});"
+      "  if(r.status===204)return;"
+      "  const c=await r.json();"
+      "  id.textContent=c.id;"
+      "  t.textContent=c.tempC===null?'--':c.tempC;"
+      "  h.textContent=c.humidity===null?'--':c.humidity;"
+      "  d.textContent=c.distanceCm===null?'--':c.distanceCm;"
+      "  s.textContent=c.ok?'OK':'DHT FAIL';"
+      " }catch(e){}"
+      "}"
+      "setInterval(tick,1000);tick();"
+      "</script></body></html>";
+ 
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, page, strlen(page));
+}
+
+
+
+
+
 void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.max_uri_handlers = 16;
@@ -819,6 +880,33 @@ void startCameraServer() {
 #endif
   };
 
+  // ---- your two custom routes ----
+  httpd_uri_t cell_uri = {
+    .uri = "/cell",
+    .method = HTTP_GET,
+    .handler = cell_handler,
+    .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+    ,
+    .is_websocket = false,
+    .handle_ws_control_frames = false,
+    .supported_subprotocol = NULL
+#endif
+  };
+
+  httpd_uri_t live_uri = {
+    .uri = "/live",
+    .method = HTTP_GET,
+    .handler = live_handler,
+    .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+    ,
+    .is_websocket = false,
+    .handle_ws_control_frames = false,
+    .supported_subprotocol = NULL
+#endif
+  };
+
   ra_filter_init(&ra_filter, 20);
 
   log_i("Starting web server on port: '%u'", config.server_port);
@@ -828,12 +916,15 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &status_uri);
     httpd_register_uri_handler(camera_httpd, &capture_uri);
     httpd_register_uri_handler(camera_httpd, &bmp_uri);
-
     httpd_register_uri_handler(camera_httpd, &xclk_uri);
     httpd_register_uri_handler(camera_httpd, &reg_uri);
     httpd_register_uri_handler(camera_httpd, &greg_uri);
     httpd_register_uri_handler(camera_httpd, &pll_uri);
     httpd_register_uri_handler(camera_httpd, &win_uri);
+
+    // register your custom routes on the SAME port 80 server
+    httpd_register_uri_handler(camera_httpd, &cell_uri);
+    httpd_register_uri_handler(camera_httpd, &live_uri);
   }
 
   config.server_port += 1;
@@ -842,6 +933,9 @@ void startCameraServer() {
   if (httpd_start(&stream_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
   }
+
+
+  
 }
 
 void setupLedFlash() {
